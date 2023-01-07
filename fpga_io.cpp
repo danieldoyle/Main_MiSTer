@@ -566,10 +566,7 @@ void fpga_set_led(uint32_t on)
 
 int fpga_get_buttons()
 {
-	fpga_gpo_write(fpga_gpo_read() | 0x80000000);
-	int gpi = fpga_gpi_read();
-	if (gpi < 0) gpi = 0; // FPGA is not in user mode. Ignore the data;
-	return (gpi >> 29) & 3;
+	return 0; //buttons are for losers
 }
 
 int fpga_get_io_type()
