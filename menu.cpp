@@ -1273,6 +1273,15 @@ void HandleUI(void)
 			       menu, select, up, down,
 			       left, right, plus, minus);
 
+	// Ensure we clear out the file-selector-visible file on select or cancel
+	if (cfg.log_file_entry)
+	{
+		if (menustate == fs_MenuSelect)
+			MakeFile("/tmp/FILESELECT", "selected");
+		else if (menustate == fs_MenuCancel)
+			MakeFile("/tmp/FILESELECT", "cancelled");
+	}
+
 	switch (menustate)
 	{
 	case MENU_NONE1:
@@ -1701,7 +1710,7 @@ void HandleUI(void)
 								static char str[1024];
 								sprintf(str, "%s.f%c", user_io_get_core_name(), p[idx]);
 								if (FileLoadConfig(str, str, sizeof(str)) && str[0])
-								{									
+								{
 									strcat(s, " ");
 									strcat(s, GetNameFromPath(str));
 								}
@@ -2077,7 +2086,7 @@ void HandleUI(void)
 						strcpy(fs_pFileExt, ext);
 
 						memcpy(Selected_tmp, Selected_S[(int)ioctl_index], sizeof(Selected_tmp));
-						if (is_x86() || is_pcxt()) strcpy(Selected_tmp, x86_get_image_path(ioctl_index));						
+						if (is_x86() || is_pcxt()) strcpy(Selected_tmp, x86_get_image_path(ioctl_index));
 						if (is_psx() && (ioctl_index == 2 || ioctl_index == 3)) fs_Options |= SCANO_SAVES;
 
 						if (is_pce() || is_megacd() || is_x86() || (is_psx() && !(fs_Options & SCANO_SAVES)))
@@ -2196,7 +2205,7 @@ void HandleUI(void)
 
 									if (is_pce() && !bit) pcecd_reset();
 									if (is_saturn() && !bit) saturn_reset();
-									
+
 									user_io_status_set(opt, 1, ex);
 									user_io_status_set(opt, 0, ex);
 
@@ -2258,6 +2267,7 @@ void HandleUI(void)
 
 				if (fs_Options & SCANO_NEOGEO)
 				{
+					neocd_set_en(0);
 					neogeo_romset_tx(selPath);
 				}
 				else
@@ -2321,6 +2331,11 @@ void HandleUI(void)
 			else if (is_saturn())
 			{
 				saturn_set_image(ioctl_index, selPath);
+			}
+			else if (is_neogeo())
+			{
+				neocd_set_en(1);
+				neocd_set_image(selPath);
 			}
 			else
 			{
@@ -2548,7 +2563,7 @@ void HandleUI(void)
 				}
 				else
 				{
-					char *filename = user_io_create_config_name();
+					char *filename = user_io_create_config_name(1);
 					printf("Saving config to %s\n", filename);
 					user_io_status_save(filename);
 					if (is_x86() || is_pcxt()) x86_config_save();
@@ -2558,7 +2573,7 @@ void HandleUI(void)
 
 			case 15:
 				FileCreatePath(DOCS_DIR);
-				snprintf(Selected_tmp, sizeof(Selected_tmp), DOCS_DIR"/%s",user_io_get_core_name());
+				snprintf(Selected_tmp, sizeof(Selected_tmp), DOCS_DIR "/%s",user_io_get_core_name());
 				FileCreatePath(Selected_tmp);
 				SelectFile(Selected_tmp, "PDFTXTMD ",  SCANO_DIR | SCANO_TXT  , MENU_DOC_FILE_SELECTED, MENU_COMMON1);
 				break;
@@ -2634,7 +2649,7 @@ void HandleUI(void)
 
 	case MENU_VIDEOPROC1:
 		helptext_idx = 0;
-		menumask = 0xFFF;
+		menumask = 0x1FFF;
 		OsdSetTitle("Video Processing");
 		menustate = MENU_VIDEOPROC2;
 		parentstate = MENU_VIDEOPROC1;
@@ -2698,7 +2713,10 @@ void HandleUI(void)
 			MenuWrite(n++, s, menusub == 10, (video_get_shadow_mask_mode() <= 0) || !S_ISDIR(getFileType(SMASK_DIR)));
 
 			MenuWrite(n++);
-			MenuWrite(n++, STD_BACK, menusub == 11);
+			MenuWrite(n++, " Reset to Defaults", menusub == 11);
+
+			MenuWrite(n++);
+			MenuWrite(n++, STD_BACK, menusub == 12);
 
 			if (!adjvisible) break;
 			firstmenu += adjvisible;
@@ -2835,6 +2853,11 @@ void HandleUI(void)
 				break;
 
 			case 11:
+				video_cfg_reset();
+				menustate = parentstate;
+				break;
+
+			case 12:
 				menusub = 5;
 				menustate = MENU_COMMON1;
 				break;
@@ -3412,7 +3435,7 @@ void HandleUI(void)
 	case MENU_PRESET_FILE_SELECTED:
 		memcpy(Selected_F[15], selPath, sizeof(Selected_F[15]));
 		recent_update(SelectedDir, selPath, SelectedLabel, 15);
-		video_loadPreset(selPath);
+		video_loadPreset(selPath, true);
 		menustate = MENU_VIDEOPROC1;
 		break;
 
@@ -3447,7 +3470,7 @@ void HandleUI(void)
 			if (m) strcat(s, "\xc ");
 			m = (i == (flag >> 4) && en);
 			if (!en) strcat(s, "\xb");
-			strcat(s, (!i) ? "Main" : (i == 1) ? "Alt1" : (i == 2) ? "Alt2" : "Alt3");
+			strcat(s, cfg_get_label(i));
 			if (!en) strcat(s, "\xb");
 		}
 		strcat(s, " ");
@@ -4691,12 +4714,9 @@ void HandleUI(void)
 		if (cfg.log_file_entry && flist_nDirEntries())
 		{
 			//Write out paths infos for external integration
-			FILE* filePtr = fopen("/tmp/CURRENTPATH", "w");
-			FILE* pathPtr = fopen("/tmp/FULLPATH", "w");
-			fprintf(filePtr, "%s", flist_SelectedItem()->altname);
-			fprintf(pathPtr, "%s", selPath);
-			fclose(filePtr);
-			fclose(pathPtr);
+			MakeFile("/tmp/CURRENTPATH", flist_SelectedItem()->altname);
+			MakeFile("/tmp/FULLPATH", selPath);
+			MakeFile("/tmp/FILESELECT", "active");
 		}
 		break;
 
@@ -5114,7 +5134,7 @@ void HandleUI(void)
 			else
 			{
 				user_io_status_reset();
-				char *filename = user_io_create_config_name();
+				char *filename = user_io_create_config_name(1);
 				printf("Saving config to %s\n", filename);
 				user_io_status_save(filename);
 				menustate = MENU_GENERIC_MAIN1;
@@ -6724,15 +6744,20 @@ void ScrollLongName(void)
 	// this function is called periodically when file selection window is displayed
 	// it checks if predefined period of time has elapsed and scrolls the name if necessary
 
-	static int len;
+	int off = 0;
 	int max_len;
 
-	len = strlen(flist_SelectedItem()->altname); // get name length
+	int len = strlen(flist_SelectedItem()->altname); // get name length
 
 	max_len = 30; // number of file name characters to display (one more required for scrolling)
 	if (flist_SelectedItem()->de.d_type == DT_DIR)
 	{
 		max_len = 23; // number of directory name characters to display
+		if ((fs_Options & SCANO_CORES) && (flist_SelectedItem()->altname[0] == '_'))
+		{
+			off = 1;
+			len--;
+		}
 	}
 
 	if (flist_SelectedItem()->de.d_type != DT_DIR) // if a file
@@ -6747,7 +6772,7 @@ void ScrollLongName(void)
 		}
 	}
 
-	ScrollText(flist_iSelectedEntry()-flist_iFirstEntry(), flist_SelectedItem()->altname, 0, len, max_len, 1);
+	ScrollText(flist_iSelectedEntry() - flist_iFirstEntry(), flist_SelectedItem()->altname + off, 0, len, max_len, 1);
 }
 
 // print directory contents
