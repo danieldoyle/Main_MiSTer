@@ -69,7 +69,7 @@ typedef struct {
 	char vfilter_scanlines_default[1023];
 	char shmask_default[1023];
 	char preset_default[1023];
-	char player_controller[4][1024];
+	char player_controller[6][8][256];
 	uint8_t rumble;
 	uint8_t wheel_force;
 	uint16_t wheel_range;
@@ -91,6 +91,7 @@ typedef struct {
 	char vga_mode[16];
 	char vga_mode_int;
 	char ntsc_mode;
+	uint32_t controller_unique_mapping[256];
 } cfg_t;
 
 extern cfg_t cfg;
