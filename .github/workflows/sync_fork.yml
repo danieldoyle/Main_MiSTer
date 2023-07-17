@@ -11,9 +11,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: tgymnich/fork-sync@v1.8
+      - uses: dabreadman/sync-upstream-repo@v1.0.0.b
         with:
-          token: ${{ secrets.PERSONAL_TOKEN }}
-          owner: llvm
-          base: master
-          head: master
+          # URL of gitHub public upstream repo
+          upstream_repo: "https://github.com/MiSTer-devel/Main_MiSTer.git"
+          # Branch to merge from upstream (defaults to downstream branch)
+          upstream_branch: master
+          # Branch to merge into downstream
+          downstream_branch: master
+          # GitHub Bot token
+          token: ${{ secrets.GITHUB_TOKEN }}
