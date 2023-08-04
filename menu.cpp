@@ -95,6 +95,9 @@ enum MENU
 	MENU_ABOUT2,
 	MENU_RESET1,
 	MENU_RESET2,
+	MENU_UNLOCK1,
+	MENU_UNLOCK2,
+	MENU_UNLOCK3,
 
 	MENU_JOYSYSMAP,
 	MENU_JOYDIGMAP,
@@ -205,6 +208,11 @@ static uint32_t menu_timer = 0;
 static uint32_t menu_save_timer = 0;
 static uint32_t load_addr = 0;
 static int32_t  bt_timer = 0;
+
+static bool osd_unlocked = 1;
+static char osd_code_entry[32];
+static uint32_t osd_lock_timer = 0;
+
 
 extern const char *version;
 
@@ -975,6 +983,7 @@ void HandleUI(void)
 	static int store_name;
 	static int vfilter_type;
 	static int old_volume = 0;
+	static uint32_t lock_pass_timeout = 0;
 
 	static char	cp_MenuCancel;
 
@@ -1167,11 +1176,11 @@ void HandleUI(void)
 			if (menustate != MENU_NONE2) menu = true;
 			break;
 		case KEY_BACK | UPSTROKE:
-			if (saved_menustate) back = true;
+			if (saved_menustate || !osd_unlocked) back = true;
 			else menu = true;
 			break;
 		case KEY_BACKSPACE | UPSTROKE:
-			if (saved_menustate) back = true;
+			if (saved_menustate || !osd_unlocked) back = true;
 			break;
 		case KEY_ENTER:
 		case KEY_SPACE:
@@ -1335,6 +1344,28 @@ void HandleUI(void)
 		break;
 	}
 
+	if (osd_lock_timer == 0) osd_lock_timer = GetTimer(10 * 1000);
+
+	switch (menustate)
+	{
+	case MENU_NONE1:
+	case MENU_NONE2:
+	case MENU_INFO:
+		if (!cfg.osd_lock[0] || is_menu() || !mgl->done) osd_unlocked = 1;
+		else if (cfg.osd_lock_time && CheckTimer(osd_lock_timer)) osd_unlocked = 0;
+		break;
+
+	case MENU_UNLOCK1:
+	case MENU_UNLOCK2:
+	case MENU_UNLOCK3:
+		break;
+
+	default:
+		osd_unlocked = 1;
+		osd_lock_timer = GetTimer(cfg.osd_lock_time * 1000);
+		break;
+	}
+
 	// Switch to current menu screen
 	switch (menustate)
 	{
@@ -1355,7 +1386,12 @@ void HandleUI(void)
 		// fall through
 
 	case MENU_NONE2:
-		if (menu || (is_menu() && !video_fb_state()) || (menustate == MENU_NONE2 && !mgl->done && mgl->state == 1))
+		if (menu && !osd_unlocked)
+		{
+			menustate = MENU_UNLOCK1;
+			osd_code_entry[0] = 0;
+		}
+		else if (menu || (is_menu() && !video_fb_state()) || (menustate == MENU_NONE2 && !mgl->done && mgl->state == 1))
 		{
 			OsdSetSize(16);
 			menusub = 0;
@@ -2465,23 +2501,31 @@ void HandleUI(void)
 			while(1)
 			{
 				n = 0;
-				menumask = 0x7802f;
+				menumask = 0x7805d;
 
 				if (!menusub) firstmenu = 0;
 				adjvisible = 0;
 
 				MenuWrite(n++, " Core                      \x16", menusub == 0, 0);
 				MenuWrite(n++);
+
+				if (cfg.osd_lock[0] && !cfg.osd_lock_time)
+				{
+					MenuWrite(n++, " Lock OSD", menusub == 1, 0);
+					MenuWrite(n++);
+					menumask |= 2;
+				}
+
 				sprintf(s, " Define %s buttons         ", is_menu() ? "System" : user_io_get_core_name());
 				s[27] = '\x16';
 				s[28] = 0;
-				MenuWrite(n++, s, menusub == 1, 0);
-				MenuWrite(n++, " Button/Key remap for game \x16", menusub == 2, 0);
-				MenuWrite(n++, " Reset player assignment", menusub == 3, 0);
+				MenuWrite(n++, s, menusub == 2, 0);
+				MenuWrite(n++, " Button/Key remap for game \x16", menusub == 3, 0);
+				MenuWrite(n++, " Reset player assignment", menusub == 4, 0);
 
 				if (user_io_get_uart_mode())
 				{
-					menumask |= 0x10;
+					menumask |= 0x20;
 					MenuWrite(n++);
 					int mode = GetUARTMode();
 					const char *p = config_uart_msg[mode];
@@ -2489,11 +2533,11 @@ void HandleUI(void)
 					sprintf(s, " UART mode (%s)            ",p);
 					s[27] = '\x16';
 					s[28] = 0;
-					MenuWrite(n++, s, menusub == 4);
+					MenuWrite(n++, s, menusub == 5);
 				}
 
 				MenuWrite(n++);
-				MenuWrite(n++, " Video processing          \x16", menusub==5);
+				MenuWrite(n++, " Video processing          \x16", menusub==6);
 
 				if (audio_filter_en() >= 0)
 				{
@@ -2575,6 +2619,11 @@ void HandleUI(void)
 				break;
 
 			case 1:
+				osd_unlocked = 0;
+				menustate = MENU_NONE1;
+				break;
+
+			case 2:
 				if (is_minimig())
 				{
 					joy_bcount = 7;
@@ -2596,25 +2645,25 @@ void HandleUI(void)
 				joymap_first = 1;
 				break;
 
-			case 2:
+			case 3:
 				start_map_setting(-1);
 				menustate = MENU_JOYKBDMAP;
 				menusub = 0;
 				break;
 
-			case 3:
+			case 4:
 				reset_players();
 				menustate = MENU_NONE1;
 				break;
 
-			case 4:
+			case 5:
 				{
 					menustate = MENU_UART1;
 					menusub = 0;
 				}
 				break;
 
-			case 5:
+			case 6:
 				{
 					menustate = MENU_VIDEOPROC1;
 					menusub = 0;
@@ -2827,7 +2876,7 @@ void HandleUI(void)
 	case MENU_VIDEOPROC2:
 		if (menu || left)
 		{
-			menusub = 5;
+			menusub = 6;
 			menustate = MENU_COMMON1;
 			break;
 		}
@@ -2959,7 +3008,7 @@ void HandleUI(void)
 				break;
 
 			case 12:
-				menusub = 5;
+				menusub = 6;
 				menustate = MENU_COMMON1;
 				break;
 			}
@@ -3207,7 +3256,7 @@ void HandleUI(void)
 		if (menu || left)
 		{
 			menustate = MENU_COMMON1;
-			menusub = 4;
+			menusub = 5;
 			break;
 		}
 
@@ -3306,7 +3355,7 @@ void HandleUI(void)
 				{
 					ResetUART();
 					menustate = MENU_COMMON1;
-					menusub = 4;
+					menusub = 5;
 				}
 				break;
 
@@ -3323,7 +3372,7 @@ void HandleUI(void)
 					sprintf(s, "uartspeed.%s", user_io_get_core_name());
 					FileSaveConfig(s, speeds, sizeof(speeds));
 					menustate = MENU_COMMON1;
-					menusub = 4;
+					menusub = 5;
 				}
 				break;
 
@@ -3902,7 +3951,7 @@ void HandleUI(void)
 				else
 				{
 					menustate = MENU_COMMON1;
-					menusub = 1;
+					menusub = 2;
 				}
 			}
 		}
@@ -3912,7 +3961,7 @@ void HandleUI(void)
 		if (select || menu)
 		{
 			menustate = MENU_COMMON1;
-			menusub = 1;
+			menusub = 2;
 		}
 		break;
 
@@ -3932,7 +3981,7 @@ void HandleUI(void)
 		if (menu)
 		{
 			menustate = MENU_COMMON1;
-			menusub = 1;
+			menusub = 2;
 			break;
 		}
 		else if (select)
@@ -3941,7 +3990,7 @@ void HandleUI(void)
 			{
 			case 0:
 				menustate = MENU_COMMON1;
-				menusub = 1;
+				menusub = 2;
 				break;
 
 			case 1:
@@ -4008,7 +4057,7 @@ void HandleUI(void)
 		{
 			finish_map_setting(menu);
 			menustate = MENU_COMMON1;
-			menusub = 2;
+			menusub = 3;
 		}
 		break;
 
@@ -4055,6 +4104,76 @@ void HandleUI(void)
 		}
 		break;
 
+	case MENU_UNLOCK1:
+		OsdSetSize(8);
+		menumask = 0;
+		helptext_idx = 0;
+		menustate = MENU_UNLOCK2;
+		parentstate = MENU_UNLOCK1;
+		OsdEnable(DISABLE_KEYBOARD);
+		OsdSetTitle("Locked", 0);
+		for (int r = 0; r < OsdGetSize(); r++) OsdWrite(r);
+		{
+			if (strlen(osd_code_entry) >= strlen(cfg.osd_lock))
+			{
+				lock_pass_timeout = GetTimer(200);
+				menustate = MENU_UNLOCK3;
+			}
+
+			int maxlen = strlen(cfg.osd_lock);
+			int count = strlen(osd_code_entry);
+
+			m = 2;
+			OsdWrite(m++, "      Enter unlock code", 0, 0, 1);
+			OsdWrite(m++, "", 0, 0, 1);
+			OsdWrite(m++, "", 0, 0, 1);
+
+			int i;
+			for (i = 0; i < (29 - maxlen) / 2; i++) s[i] = ' ';
+			for (int j = 0; j < maxlen; j++, i++) s[i] = j < count ? 0x7F : 0x8C;
+
+			s[i] = '\0';
+			OsdWrite(m++, s, 0, 0, 1);
+			OsdUpdate();
+		}
+		break;
+
+	case MENU_UNLOCK2:
+		{
+			const char *append = "";
+			if (up) append = "U";
+			else if (down) append = "D";
+			else if (left) append = "L";
+			else if (right) append = "R";
+			else if (select) append = "A";
+			else if (back) append = "B";
+			else if (menu) menustate = MENU_NONE1;
+
+			if (append[0])
+			{
+				strcat(osd_code_entry, append);
+				menustate = MENU_UNLOCK1;
+			}
+		}
+		break;
+
+	case MENU_UNLOCK3:
+		if (CheckTimer(lock_pass_timeout))
+		{
+			if (!strcmp(osd_code_entry, cfg.osd_lock))
+			{
+				osd_unlocked = 1;
+				osd_lock_timer = GetTimer(cfg.osd_lock_time * 1000);
+				menustate = MENU_NONE2;
+				menu_key_set(KEY_F12);
+			}
+			else
+			{
+				menustate = MENU_UNLOCK1;
+				osd_code_entry[0] = 0;
+			}
+		}
+		break;
 
 		/******************************************************************/
 		/* st main menu                                                 */
