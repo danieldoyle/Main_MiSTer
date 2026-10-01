@@ -14,6 +14,8 @@
 #include "support/a2/dsk2nib_lib.h"
 // Apple IIgs disk integration
 #include "support/a2/iigs_disk.h"
+// Apple III
+#include "support/a3/a3_disk.h"
 
 // Mac
 #include "support/mac/mac.h"
@@ -76,3 +78,6 @@
 
 // 3DO  support
 #include "support/3do/3do.h"
+
+// FM Towns Marty support
+#include "support/marty/marty.h"
