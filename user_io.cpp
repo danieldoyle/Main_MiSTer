@@ -416,11 +416,6 @@ char is_st()
 	return (is_st_type == 1);
 }
 
-char is_sharpmz()
-{
-	return(core_type == CORE_TYPE_SHARPMZ);
-}
-
 static int is_electron_type = 0;
 char is_electron()
 {
@@ -628,8 +623,9 @@ void user_io_status_set(const char *opt, uint32_t value, int ex)
 
 	if (!is_st())
 	{
+		uint32_t ext = minimig_get_extcfg();
 		spi_uio_cmd_cont(UIO_SET_STATUS2);
-		for (uint32_t i = 0; i < sizeof(cur_status); i += 2) spi_w((cur_status[i + 1] << 8) | cur_status[i]);
+		for (uint32_t i = 0; i < sizeof(cur_status); i += 2) spi_w((is_minimig() && (i >> 2) == 1) ? (uint16_t)(ext >> ((i & 2) << 3)) : (cur_status[i + 1] << 8) | cur_status[i]);
 		DisableIO();
 	}
 }
@@ -1491,8 +1487,7 @@ void user_io_init(const char *path, const char *xml)
 		core_type = CORE_TYPE_8BIT;
 	}
 
-	if ((core_type != CORE_TYPE_8BIT) &&
-		(core_type != CORE_TYPE_SHARPMZ))
+	if (core_type != CORE_TYPE_8BIT)
 	{
 		core_type = CORE_TYPE_UNKNOWN;
 		fio_size = 0;
@@ -1514,10 +1509,6 @@ void user_io_init(const char *path, const char *xml)
 
 		// send a reset
 		user_io_status_set("[0]", 1);
-	}
-	else if (core_type == CORE_TYPE_SHARPMZ)
-	{
-		user_io_set_core_name("sharpmz");
 	}
 
 	user_io_read_confstr();
@@ -1582,13 +1573,6 @@ void user_io_init(const char *path, const char *xml)
 	{
 	case CORE_TYPE_UNKNOWN:
 		printf("Unable to identify core (%x)!\n", core_type);
-		break;
-
-	case CORE_TYPE_SHARPMZ:
-		printf("Identified Sharp MZ Series core");
-		user_io_set_core_name("sharpmz");
-		sharpmz_init();
-		parse_buttons();
 		break;
 
 	case CORE_TYPE_8BIT:
@@ -1824,7 +1808,7 @@ void user_io_init(const char *path, const char *xml)
 
 	f12_mod = spi_uio_cmd(UIO_GET_F12_MOD);
 
-	if (!mgl_get()->count || is_menu() || is_st() || is_archie() || user_io_core_type() == CORE_TYPE_SHARPMZ)
+	if (!mgl_get()->count || is_menu() || is_st() || is_archie())
 	{
 		mgl_get()->done = 1;
 	}
@@ -3308,8 +3292,7 @@ void user_io_poll()
 	// is being updated and getting a corrupted image.
 	add_frame_callback(screenshot_cb);
 
-	if ((core_type != CORE_TYPE_SHARPMZ) &&
-		(core_type != CORE_TYPE_8BIT))
+	if (core_type != CORE_TYPE_8BIT)
 	{
 		return;  // no user io for the installed core
 	}
@@ -3727,7 +3710,6 @@ void user_io_poll()
 	}
 
 	if (is_archie()) archie_poll();
-	if (core_type == CORE_TYPE_SHARPMZ) sharpmz_poll();
 
 	static uint8_t leds = 0;
 
@@ -4241,29 +4223,6 @@ static void send_keycode(unsigned short key, int press)
                     else
                         spi8(0xf0);
             }
-			// send code itself
-			spi8(code & 0xff);
-
-			DisableIO();
-		}
-	}
-
-	if (core_type == CORE_TYPE_SHARPMZ)
-	{
-		uint32_t code = get_ps2_code(key);
-		if (code == NONE) return;
-
-		{
-			if (press > 1 && !use_ps2ctl) return;
-
-			spi_uio_cmd_cont(UIO_KEYBOARD);
-
-			// prepend extended code flag if required
-			if (code & EXT) spi8(0xe0);
-
-			// prepend break code if required
-			if (!press) spi8(0xf0);
-
 			// send code itself
 			spi8(code & 0xff);
 
