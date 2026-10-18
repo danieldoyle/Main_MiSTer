@@ -302,7 +302,7 @@ static const char *helptexts[] =
 	helptext_custom,
 	"                                Welcome to MiSTer! Use the cursor keys to navigate the menus. Use space bar or enter to select an item. Press Esc or F12 to exit the menus. Joystick emulation on the numeric keypad can be toggled with the numlock or scrlock key, while pressing Ctrl-Alt-0 (numeric keypad) toggles autofire mode.",
 	"                                Minimig can emulate an A600/A1200 IDE harddisk interface. The emulation can make use of Minimig-style hardfiles (complete disk images) or UAE-style hardfiles (filesystem images with no partition table).",
-	"                                Minimig's processor core can emulate a 68000 (cycle accuracy as A500/A600), a 68EC020 at A1200 speed, or a 68030 with MMU at 25, 33, 40 or 50MHz or at 56.7MHz with no speed limit, all with transparent cache. The 68030 has no FPU, and needs a core that offers it.",
+	"                                Minimig's processor core can emulate a 68000 (cycle accuracy as A500/A600), a 68EC020 at A1200 speed, or a 68030 with or without MMU (maximum performance), all with transparent cache. The 68030 has no FPU, and needs a core that offers it.",
 	"                                Minimig can make use of up to 2 megabytes of Chip RAM, up to 1.5 megabytes of Slow RAM (A500 Trapdoor RAM), and up to 384 megabytes of Fast RAM (8MB max for 68000 mode). To use the HRTmon feature you will need a file on the SD card named hrtmon.rom.",
 	"                                Backspace key (or B-hold + A on gamepad) to unmount",
 	"                                Backspace key (or B-hold + A on gamepad) to clear stored option. You have to reload the core to be able to use default value.",
@@ -2474,8 +2474,9 @@ void HandleUI(void)
 						if (is_psx() && (ioctl_index == 2 || ioctl_index == 3)) fs_Options |= SCANO_SAVES;
 						if (is_saturn() && (ioctl_index == 1)) fs_Options |= SCANO_SAVES;
 						if (is_marty() && (ioctl_index == MARTY_SLOT_CARD)) fs_Options |= SCANO_SAVES;
+						if (is_pcfx() && (ioctl_index != PCFX_SLOT_CD)) fs_Options |= SCANO_SAVES;
 
-						if ((is_saturn() && !(fs_Options & SCANO_SAVES)) || is_pce() || is_megacd() || is_3do() || is_x86() || is_cdi() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_neogeo() || (is_marty() && ioctl_index == MARTY_SLOT_CD))
+						if ((is_saturn() && !(fs_Options & SCANO_SAVES)) || is_pce() || is_megacd() || is_3do() || is_x86() || is_cdi() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_neogeo() || (is_marty() && ioctl_index == MARTY_SLOT_CD) || (is_pcfx() && ioctl_index == PCFX_SLOT_CD))
 						{
 							//look for CHD too
 							if (!strcasestr(ext, "CHD"))
@@ -2605,6 +2606,8 @@ void HandleUI(void)
 									if (is_atari800() && !bit) atari800_reset();
 									if (is_atari5200() && !bit) atari5200_reset();
 									if (is_3do() && !bit) p3do_reset();
+									if (is_pcfx() && !ex && bit == PCFX_BIT_NEW_CARD) pcfx_new_card();
+									if (is_pcfx() && !ex && bit == PCFX_BIT_EJECT_CARD) pcfx_eject_card();
 
 									user_io_status_set(opt, 1, ex);
 									if (is_n64() && !ex && !strcmp(opt, "[41]")) n64_save_dd_disk();
@@ -2849,6 +2852,10 @@ void HandleUI(void)
 			else if (is_marty())
 			{
 				marty_set_image(ioctl_index, selPath);
+			}
+			else if (is_pcfx())
+			{
+				pcfx_set_image(ioctl_index, selPath);
 			}
 			else
 			{
@@ -5653,7 +5660,7 @@ void HandleUI(void)
 				char type = flist_SelectedItem()->de.d_type;
 				memcpy(name, flist_SelectedItem()->de.d_name, sizeof(name));
 
-				if ((fs_Options & SCANO_UMOUNT) && (is_megacd() || is_pce() || is_cdi() || is_neogeo() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_saturn() || is_3do() || (is_marty() && ioctl_index == MARTY_SLOT_CD)) && type == DT_DIR && strcmp(flist_SelectedItem()->de.d_name, ".."))
+				if ((fs_Options & SCANO_UMOUNT) && (is_megacd() || is_pce() || is_cdi() || is_neogeo() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_saturn() || is_3do() || (is_marty() && ioctl_index == MARTY_SLOT_CD) || (is_pcfx() && ioctl_index == PCFX_SLOT_CD)) && type == DT_DIR && strcmp(flist_SelectedItem()->de.d_name, ".."))
 				{
 					int len = strlen(selPath);
 					strcat(selPath, "/");
@@ -6548,7 +6555,7 @@ void HandleUI(void)
 		m = 0;
 		strcpy(s, " CPU      : ");
 		strcat(s, ((minimig_config.cpu & 0x23) == 0x23) ? "68EC020" : config_cpu_msg[minimig_config.cpu & 0x03]);
-		if ((minimig_config.cpu & 0x03) == 0x02) strcat(s, config_cpu030_msg[(minimig_config.cpu & 0x20) ? 4 : ((minimig_config.cpu >> 6) & 3)]);
+		if ((minimig_config.cpu & 0x23) == 0x22) strcat(s, " no MMU");
 		OsdWrite(m++, s, menusub == 0, 0);
 
 		OsdWrite(m++, "", 0, 0);
@@ -6615,15 +6622,13 @@ void HandleUI(void)
 		{
 			if (menusub == 0)
 			{
-				static const unsigned char cpu_steps[8] = { 0, 1, 0x23, 0x02, 0x22, 0x42, 0x82, 0xc2 };
-				static const unsigned char cpu030_order[4] = { 0, 2, 3, 4 };
+				static const unsigned char cpu_steps[5] = { 0, 1, 0x23, 0x02, 0x22 };
 				int step = ((minimig_config.cpu & 3) == 0) ? 0 :
 				           ((minimig_config.cpu & 3) == 1) ? 1 :
-				           ((minimig_config.cpu & 3) == 2) ? ((minimig_config.cpu & 0x20) ? 4 :
-				                                             3 + cpu030_order[(minimig_config.cpu >> 6) & 3]) :
-				           (minimig_config.cpu & 0x20) ? 2 : 7;
+				           ((minimig_config.cpu & 3) == 3) ? 2 :
+				           (minimig_config.cpu & 0x20) ? 4 : 3;
 
-				step = (step + (minus ? 7 : 1)) % 8;
+				step = (step + (minus ? 4 : 1)) % 5;
 
 				menustate = MENU_MINIMIG_CHIPSET1;
 				minimig_config.cpu = (minimig_config.cpu & 0x1c) | cpu_steps[step];
@@ -6678,11 +6683,19 @@ void HandleUI(void)
 			}
 			else if (menusub == 3)
 			{
-				static const int fast_up[8] = { 1, 2, 3, 7, 5, 0, 4, 6 };
-				static const int fast_dn[8] = { 5, 0, 1, 2, 6, 4, 7, 3 };
 				int c = (((minimig_config.memory >> 4) & 0x03) | ((minimig_config.memory & 0x80) >> 5));
-				c = minus ? fast_dn[c] : fast_up[c];
-				if (!((minimig_config.cpu & 0x23) != 0x23 && (minimig_config.cpu & 2)) && c > 3) c = minus ? 3 : 0;
+				if (minus)
+				{
+					c--;
+					if (c < 0) c = 5;
+					if (!((minimig_config.cpu & 0x23) != 0x23 && (minimig_config.cpu & 2)) && c > 3) c = 3;
+				}
+				else
+				{
+					c++;
+					if (c > 5) c = 0;
+					if (!((minimig_config.cpu & 0x23) != 0x23 && (minimig_config.cpu & 2)) && c > 3) c = 0;
+				}
 				minimig_config.memory = ((c << 4) & 0x30) | ((c << 5) & 0x80) | (minimig_config.memory & ~0xB0);
 				menustate = MENU_MINIMIG_CHIPSET1;
 			}
